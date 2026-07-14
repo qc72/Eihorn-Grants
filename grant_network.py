@@ -329,6 +329,7 @@ def build_interactive_html(
     grant_lookup: dict[str, dict[str, Any]],
     focus_partner: str | None = None,
     height: int = 820,
+    animated_layout: bool = False,
 ) -> str:
     """Create a PyVis graph with a client-side click details panel."""
     network = Network(
@@ -336,13 +337,30 @@ def build_interactive_html(
         width="100%",
         directed=False,
         notebook=False,
-        cdn_resources="in_line",
+        cdn_resources="remote",
         bgcolor="#ffffff",
         font_color="#1f2937",
     )
 
     node_meta: dict[str, dict[str, Any]] = {}
     edge_meta: dict[str, dict[str, Any]] = {}
+
+    # Precompute a deterministic layout on the server for fast first paint.
+    # This avoids hundreds of browser-side physics iterations.
+    positions: dict[str, tuple[float, float]] = {}
+    if not animated_layout and graph.number_of_nodes() > 0:
+        layout_iterations = 20 if graph.number_of_nodes() > 350 else 35
+        raw_positions = nx.spring_layout(
+            graph,
+            seed=42,
+            iterations=layout_iterations,
+            scale=1000,
+            weight="shared_grant_count",
+        )
+        positions = {
+            str(node): (float(coords[0]), float(coords[1]))
+            for node, coords in raw_positions.items()
+        }
 
     for partner, attrs in graph.nodes(data=True):
         grant_count = int(attrs.get("grant_count", 0))
@@ -364,6 +382,9 @@ def build_interactive_html(
             title=tooltip,
             value=max(grant_count, 1),
             shape="dot",
+            x=positions.get(str(partner), (None, None))[0],
+            y=positions.get(str(partner), (None, None))[1],
+            physics=animated_layout,
             borderWidth=1,
             color={
                 "background": "#7db7df",
@@ -436,65 +457,69 @@ def build_interactive_html(
             "grant_event_ids": list(attrs.get("grant_event_ids", [])),
         }
 
-    network.set_options(
-        """
+    physics_options = (
         {
-          "interaction": {
-            "hover": true,
-            "navigationButtons": true,
-            "keyboard": true,
-            "multiselect": false,
-            "tooltipDelay": 120
-          },
-          "nodes": {
-            "font": {
-              "size": 13,
-              "face": "Arial",
-              "strokeWidth": 3,
-              "strokeColor": "#ffffff"
-            },
-            "scaling": {
-              "min": 9,
-              "max": 42,
-              "label": {
-                "enabled": true,
-                "min": 11,
-                "max": 19,
-                "drawThreshold": 6
-              }
-            }
-          },
-          "edges": {
-            "smooth": {
-              "enabled": true,
-              "type": "dynamic"
-            },
-            "scaling": {
-              "min": 1,
-              "max": 10
-            },
-            "selectionWidth": 2.5,
-            "hoverWidth": 1.5
-          },
-          "physics": {
-            "enabled": true,
+            "enabled": True,
             "barnesHut": {
-              "gravitationalConstant": -7200,
-              "centralGravity": 0.22,
-              "springLength": 145,
-              "springConstant": 0.035,
-              "damping": 0.28,
-              "avoidOverlap": 0.2
+                "gravitationalConstant": -6500,
+                "centralGravity": 0.2,
+                "springLength": 140,
+                "springConstant": 0.035,
+                "damping": 0.35,
+                "avoidOverlap": 0.15,
             },
             "stabilization": {
-              "enabled": true,
-              "iterations": 450,
-              "updateInterval": 40
+                "enabled": True,
+                "iterations": 100,
+                "updateInterval": 25,
+                "fit": True,
             },
-            "minVelocity": 0.75
-          }
+            "minVelocity": 1.0,
         }
-        """
+        if animated_layout
+        else {"enabled": False}
+    )
+
+    network.set_options(
+        json.dumps(
+            {
+                "interaction": {
+                    "hover": True,
+                    "navigationButtons": True,
+                    "keyboard": True,
+                    "multiselect": False,
+                    "tooltipDelay": 120,
+                },
+                "nodes": {
+                    "font": {
+                        "size": 13,
+                        "face": "Arial",
+                        "strokeWidth": 3,
+                        "strokeColor": "#ffffff",
+                    },
+                    "scaling": {
+                        "min": 9,
+                        "max": 42,
+                        "label": {
+                            "enabled": True,
+                            "min": 11,
+                            "max": 19,
+                            "drawThreshold": 6,
+                        },
+                    },
+                },
+                "edges": {
+                    "smooth": {
+                        "enabled": animated_layout,
+                        "type": "dynamic" if animated_layout else "continuous",
+                    },
+                    "scaling": {"min": 1, "max": 10},
+                    "selectionWidth": 2.5,
+                    "hoverWidth": 1.5,
+                },
+                "physics": physics_options,
+            }
+        )
     )
 
     base_html = network.generate_html(notebook=False)
@@ -676,7 +701,18 @@ def build_interactive_html(
     """
     base_html = base_html.replace("</head>", custom_css + "</head>", 1)
 
-    grant_json = _safe_json(grant_lookup)
+    visible_event_ids = {
+        event_id
+        for metadata in node_meta.values()
+        for event_id in metadata.get("grant_event_ids", [])
+    }
+    visible_grants = {
+        event_id: grant_lookup[event_id]
+        for event_id in visible_event_ids
+        if event_id in grant_lookup
+    }
+
+    grant_json = _safe_json(visible_grants)
     node_json = _safe_json(node_meta)
     edge_json = _safe_json(edge_meta)
     focus_json = _safe_json(focus_partner or "")
@@ -861,6 +897,12 @@ def build_interactive_html(
       }}
 
       attachGrantPanel();
+
+      if ({str(animated_layout).lower()} && typeof network !== "undefined") {{
+        network.once("stabilizationIterationsDone", function () {{
+          network.setOptions({{physics: false}});
+        }});
+      }}
     </script>
     """
 
