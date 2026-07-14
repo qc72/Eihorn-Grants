@@ -157,7 +157,7 @@ with st.sidebar:
         format_func=lambda value: "No partner selected" if not value else value,
     )
 
-    if st.button("Reload CSV now", use_container_width=True, type="primary"):
+    if st.button("Reload CSV now", width="stretch", type="primary"):
         cached_load_grants.clear()
         st.session_state.pop("last_good_grants", None)
         st.rerun()
@@ -226,22 +226,33 @@ try:
             scrolling=False,
         )
 
-    with st.expander("View filtered grant rows"):
+    with st.expander("Filtered grant data"):
         visible_columns = [
             column for column in REQUIRED_COLUMNS if column in filtered_df.columns
         ]
-        st.dataframe(
-            filtered_df[visible_columns],
-            use_container_width=True,
-            hide_index=True,
+        export_df = filtered_df[visible_columns]
+
+        # Avoid serializing the full DataFrame through Apache Arrow on every
+        # widget rerun. A compact text preview is sufficient here, and the
+        # complete data remains available as a CSV download.
+        preview_rows = min(20, len(export_df))
+        st.caption(
+            f"Previewing the first {preview_rows:,} of {len(export_df):,} rows. "
+            "Download the CSV for the complete table."
+        )
+        st.code(
+            export_df.head(preview_rows).to_csv(index=False),
+            language="text",
         )
 
-        csv_bytes = filtered_df[visible_columns].to_csv(index=False).encode("utf-8")
+        csv_bytes = export_df.to_csv(index=False).encode("utf-8")
         st.download_button(
             "Download filtered CSV",
             data=csv_bytes,
             file_name="filtered_grants.csv",
             mime="text/csv",
+            on_click="ignore",
+            width="stretch",
         )
 except Exception as exc:
     st.error(f"The network could not be rendered: {exc}")
