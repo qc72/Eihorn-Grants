@@ -343,11 +343,11 @@ def build_interactive_html(
         dominant_program = _dominant_program(attrs)
 
         tooltip = (
-            f"<b>{html.escape(partner)}</b><br>"
-            f"Associated grants: {grant_count:,}<br>"
-            f"Associated funding: ${funding:,.0f}<br>"
-            f"Visible collaborators: {collaborator_count:,}<br>"
-            "Click for individual grant details"
+            f"{html.escape(partner)}"
+            #f"Associated grants: {grant_count:,}<br>"
+            #f"Associated funding: ${funding:,.0f}<br>"
+            #f"Visible collaborators: {collaborator_count:,}<br>"
+            #"Click for individual grant details"
         )
 
         network.add_node(
@@ -397,11 +397,11 @@ def build_interactive_html(
         shared_funding = float(attrs.get("shared_associated_funding", 0))
 
         tooltip = (
-            f"<b>{html.escape(partner_1)}</b> + "
-            f"<b>{html.escape(partner_2)}</b><br>"
-            f"Shared grants: {shared_count:,}<br>"
-            f"Shared associated funding: ${shared_funding:,.0f}<br>"
-            "Click for shared grant details"
+            f"{html.escape(partner_1)} + "
+            f"{html.escape(partner_2)}"
+            #f"Shared grants: {shared_count:,}<br>"
+            #f"Shared associated funding: ${shared_funding:,.0f}<br>"
+            #"Click for shared grant details"
         )
 
         network.add_edge(
