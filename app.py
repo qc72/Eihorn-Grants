@@ -196,19 +196,10 @@ with st.sidebar:
 
     auto_refresh = st.checkbox(
         "Automatically check for updates",
-        value=False,
+        value=True,
         help=(
             "Checks the shared CSV periodically. Turn this off for large "
             "meetings and use Reload CSV now instead."
-        ),
-    )
-
-    animated_layout = st.checkbox(
-        "Animate network layout",
-        value=False,
-        help=(
-            "Off is much faster. Turn it on only when you want the nodes "
-            "to rearrange themselves interactively."
         ),
     )
 
@@ -292,7 +283,6 @@ def live_network() -> None:
             grant_lookup,
             focus_partner=active_focus,
             height=820,
-            animated_layout=animated_layout,
         )
 
         # PyVis is a JavaScript visualization, so it is rendered in an iframe.
