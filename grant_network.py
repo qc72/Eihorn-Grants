@@ -14,6 +14,8 @@ from urllib.parse import urlparse
 import networkx as nx
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from pyvis.network import Network
 
 
@@ -82,16 +84,50 @@ def load_grants(source: str | Path) -> pd.DataFrame:
     source_text = str(source)
 
     if _is_url(source_text):
-        response = requests.get(
-            source_text,
-            timeout=30,
-            headers={
-                "User-Agent": "grant-network-streamlit-app/1.0",
-                "Cache-Control": "no-cache",
-                "Pragma": "no-cache",
-            },
+        # Google Sheets and other public CSV hosts occasionally return a
+        # transient 429/5xx response. Requests does not retry by default, so
+        # use bounded exponential backoff for safe GET requests.
+        retry_policy = Retry(
+            total=4,
+            connect=4,
+            read=4,
+            status=4,
+            backoff_factor=0.8,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset({"GET"}),
+            respect_retry_after_header=True,
+            raise_on_status=False,
         )
+        adapter = HTTPAdapter(
+            max_retries=retry_policy,
+            pool_connections=4,
+            pool_maxsize=4,
+        )
+
+        with requests.Session() as session:
+            session.mount("https://", adapter)
+            session.mount("http://", adapter)
+            response = session.get(
+                source_text,
+                timeout=(10, 30),
+                headers={
+                    "User-Agent": "grant-network-streamlit-app/1.1",
+                    "Accept": "text/csv,text/plain;q=0.9,*/*;q=0.1",
+                    "Cache-Control": "no-cache",
+                    "Pragma": "no-cache",
+                },
+            )
+
         response.raise_for_status()
+
+        body_start = response.text.lstrip()[:500].lower()
+        content_type = response.headers.get("Content-Type", "").lower()
+        if "text/html" in content_type or "<html" in body_start:
+            raise ValueError(
+                "The remote URL returned an HTML webpage instead of CSV data. "
+                "Use the Google Sheets Publish-to-web CSV URL."
+            )
+
         csv_input: str | Path | io.StringIO = io.StringIO(response.text)
     else:
         path = Path(source_text)
